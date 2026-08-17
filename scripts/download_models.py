@@ -5,7 +5,7 @@ from huggingface_hub import snapshot_download
 
 MODELS = {
     "whisper": {
-        "repo": "Systran/faster-whisper-large-v3-turbo",
+        "repo": "dropbox-dash/faster-whisper-large-v3-turbo",
         "dir": "whisper",
         "local": "huggingface",
     },

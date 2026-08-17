@@ -66,7 +66,7 @@ case "$MODE" in
     log "installing faster-whisper, silero-vad, coqui-tts"
     pip install -r requirements.txt
     pip install coqui-tts
-    if [ ! -d "$HF_HOME/hub/models--Systran--faster-whisper-large-v3-turbo" ]; then
+    if [ ! -f models/whisper/model.bin ]; then
       log "downloading STT/TTS weights (~5 GB into $HF_HOME)"
       python scripts/download_models.py
     fi

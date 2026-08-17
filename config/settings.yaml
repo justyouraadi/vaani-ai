@@ -17,7 +17,7 @@ vad:
   end_silence_frames: 22
 
 stt:
-  model: "large-v3-turbo"
+  model: "models/whisper"
   device: "cuda"
   compute_type: "float16"
   language: "hi"
