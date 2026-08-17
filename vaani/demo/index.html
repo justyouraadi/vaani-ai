@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vaani — Voice AI Demo</title>
+<style>
+  :root {
+    --bg: #0b1020; --panel: #151c30; --line: #26304a;
+    --text: #e8ecf7; --muted: #8b94ad; --accent: #6c8cff; --good: #3ddc97;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 70% -10%, #1b2542 0%, var(--bg) 55%);
+    color: var(--text); min-height: 100vh; padding: 32px 16px; display: grid;
+    place-items: center;
+  }
+  .card {
+    width: min(860px, 100%); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 18px; padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .orb {
+    width: 64px; height: 64px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #9db4ff, #4a63c8 70%);
+    box-shadow: 0 0 0 0 rgba(108,140,255,.45), 0 8px 24px rgba(0,0,0,.5);
+    transition: box-shadow .2s;
+  }
+  .orb.listening { animation: pulse 1.4s infinite; }
+  .orb.speaking { animation: pulse 0.9s infinite; box-shadow: 0 0 0 0 rgba(61,220,151,.5); }
+  .orb.error { background: radial-gradient(circle at 35% 30%, #ff9d9d, #c84a4a 70%); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(108,140,255,.45); }
+    70% { box-shadow: 0 0 0 26px rgba(108,140,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(108,140,255,0); }
+  }
+  h1 { font-size: 22px; letter-spacing: .4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+  button {
+    border: 0; border-radius: 10px; padding: 12px 22px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: transform .05s, opacity .2s, background .2s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  #start { background: var(--good); color: #06281c; }
+  #stop { background: #d9534f; color: #fff; }
+  .status {
+    font-size: 13px; color: var(--muted); padding: 8px 14px; border-radius: 20px;
+    border: 1px solid var(--line); min-width: 180px; text-align: center;
+  }
+  .status.live { color: var(--good); border-color: rgba(61,220,151,.4); }
+  section { margin-bottom: 18px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin-bottom: 8px; }
+  .transcript {
+    min-height: 84px; background: #0d1322; border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; font-size: 15px; line-height: 1.55;
+  }
+  .transcript .user { color: #aebcf5; }
+  .transcript .agent { color: #c9f7df; }
+  .transcript .dim { color: var(--muted); }
+  .log {
+    background: #0d1322; border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px; max-height: 180px; overflow-y: auto; color: var(--muted);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .log .ev-start { color: var(--accent); }
+  .log .ev-end { color: var(--good); }
+  .log .ev-partial { color: #f2c14e; }
+  .log .warn { color: #f2c14e; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div class="orb" id="orb"></div>
+      <div>
+        <h1>Vaani — live voice AI</h1>
+        <div class="sub">bytes ▼ mic PCM16 16 kHz → Silero VAD → faster-whisper → vLLM Qwen2.5-14B → XTTS clone → spoken reply. Talk over her anytime (barge-in).</div>
+      </div>
+    </header>
+
+    <div class="controls">
+      <button id="start">Start call</button>
+      <button id="stop" disabled>End call</button>
+      <div class="status" id="status">offline</div>
+    </div>
+
+    <section>
+      <div class="label">Conversation</div>
+      <div class="transcript" id="transcript"><span class="dim">Press "Start call" and speak. The live transcript and Vaani's reply will appear here — mic and speaker audio stream over one WebSocket.</span></div>
+    </section>
+
+    <section>
+      <div class="label">Pipeline events</div>
+      <div class="log" id="log"></div>
+    </section>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const orb = $("orb"), statusEl = $("status"), logEl = $("log"), txEl = $("transcript");
+const startBtn = $("start"), stopBtn = $("stop");
+
+let ws, ctx, worklet, stream, playing = false, turn = 0;
+let pendingBuf = null;           // Float32Array chunk accumulation
+let bufLen = 0;
+let queueWhen = 0, sources = [];
+const CHUNK = 16000 * 0.5;       // 0.5 s audio buffers
+const idleStop = 2.5;            // s of silence before flushing a partial buffer
+
+function setStatus(text, live) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle("live", !!live);
+}
+function setOrb(state) { orb.className = "orb" + (state ? " " + state : ""); }
+function log(line, cls) {
+  const div = document.createElement("div");
+  div.className = cls || "";
+  div.textContent = "[" + new Date().toISOString().slice(11, 19) + "] " + line;
+  logEl.prepend(div);
+  while (logEl.children.length > 60) logEl.lastChild.remove();
+}
+function addLine(role, text) {
+  const div = document.createElement("div");
+  div.className = role;
+  div.textContent = (role === "user" ? "You: " : "Vaani: ") + text;
+  txEl.appendChild(div);
+  txEl.scrollTop = txEl.scrollHeight;
+}
+
+/* ------- audio playback queue ------- */
+function flushPlay() {
+  if (!pendingBuf || bufLen === 0) return;
+  const buf = ctx.createBuffer(1, bufLen, 16000);
+  buf.copyToChannel(pendingBuf.subarray(0, bufLen), 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  const startAt = Math.max(ctx.currentTime + 0.03, queueWhen);
+  src.start(startAt);
+  queueWhen = startAt + buf.duration;
+  sources.push(src);
+  src.onended = () => {
+    sources = sources.filter(s => s !== src);
+    if (sources.length === 0 && turn > 0) setOrb("");
+  };
+  pendingBuf = null; bufLen = 0;
+}
+function pushAudio(bytes) {
+  if (!ctx) return;
+  const n = bytes.byteLength / 2;
+  const f32 = new Float32Array(n);
+  const i16 = new Int16Array(bytes);
+  for (let i = 0; i < n; i++) f32[i] = i16[i] / 32768;
+  if (!pendingBuf) { pendingBuf = new Float32Array(CHUNK); bufLen = 0; }
+  let idx = 0;
+  while (idx < n) {
+    const room = pendingBuf.length - bufLen;
+    const take = Math.min(room, n - idx);
+    pendingBuf.set(f32.subarray(idx, idx + take), bufLen);
+    bufLen += take; idx += take;
+    if (bufLen === pendingBuf.length) { flushPlay(); pendingBuf = new Float32Array(CHUNK); bufLen = 0; }
+  }
+  playing = sources.length > 0 || bufLen > 0;
+  if (playing) setOrb("speaking");
+}
+let lastAudioAt = Date.now();
+function bargeIn() {
+  sources.forEach(s => { try { s.stop(); } catch (e) {} });
+  sources = [];
+  pendingBuf = null; bufLen = 0;
+  queueWhen = ctx.currentTime + 0.05;
+  playing = false;
+  setOrb("listening");
+  log("user speech detected -> agent audio stopped (barge-in)", "ev-partial");
+}
+
+/* ------- websocket ------- */
+async function connect(url) {
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    setStatus("connected — speak now", true);
+    setOrb("listening");
+    log("ws open; client sends PCM16 16 kHz");
+  };
+  ws.onmessage = async ev => {
+    if (typeof ev.data === "string") {
+      const m = JSON.parse(ev.data);
+      if (m.type === "stt_partial") {
+        log('stt_partial "' + m.text.slice(0, 60) + (m.text.length > 60 ? "…" : "") + '"', "ev-partial");
+      } else if (m.type === "stt_final") {
+        addLine("user", m.text);
+        log("stt_final [" + turn + "]");
+      } else if (m.type === "llm_start") {
+        turn = m.turn;
+        setStatus("Vaani is speaking", false);
+        log("llm_start turn " + m.turn, "ev-start");
+      } else if (m.type === "llm_end") {
+        flushPlay();
+        if (m.interrupted) {
+          setStatus("listening (turn " + (turn + 1) + ")", true);
+          addLine("agent", "(interrupted)");
+        } else {
+          setStatus("Vaani finished — your turn", true);
+        }
+        log("llm_end turn " + m.turn + " interrupted=" + m.interrupted, "ev-end");
+        setTimeout(() => { if (!playing) setOrb("listening"); }, 1200);
+      }
+      return;
+    }
+    lastAudioAt = Date.now();
+    pushAudio(ev.data);
+  };
+  ws.onclose = () => { setStatus("disconnected"); setOrb(""); log("ws closed"); };
+  ws.onerror = () => { setStatus("WS error"); setOrb("error"); log("ws error — is the edge server secure-context reachable?"); };
+}
+
+/* ------- mic -> worklet -> ws ------- */
+async function start() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    ctx = new AudioContext();
+    await ctx.audioWorklet.addModule("/demo/pcm16-processor.js");
+    worklet = new AudioWorkletNode(ctx, "pcm16-processor");
+    worklet.port.onmessage = ev => {
+      const d = ev.data;
+      if (d.type === "activity" && d.on) {
+        if (playing || sources.length > 0) bargeIn();
+      }
+      if (d.type === "pcm16" && ws && ws.readyState === 1) ws.send(d.data);
+    };
+    const mic = ctx.createMediaStreamSource(stream);
+    mic.connect(worklet);
+    await connect("ws://" + location.host + "/ws/call");
+    startBtn.disabled = true; stopBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus("mic failed: " + err.message, false);
+    setOrb("error");
+    log("getUserMedia failed: " + err.message + " — allow microphone access (localhost is a secure context).", "warn");
+  }
+}
+
+async function stopAll() {
+  try { if (ws) ws.close(); } catch (e) {}
+  try { if (worklet) worklet.disconnect(); } catch (e) {}
+  try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (ctx && ctx.state !== "closed") await ctx.close(); } catch (e) {}
+  ws = null; ctx = null; worklet = null; stream = null;
+  sources.forEach(s => { try { s.stop(); } catch (e) {} });
+  sources = []; pendingBuf = null; bufLen = 0;
+  setStatus("offline"); setOrb("");
+  startBtn.disabled = false; stopBtn.disabled = true;
+}
+
+startBtn.onclick = start;
+stopBtn.onclick = stopAll;
+setInterval(() => {
+  if (playing && Date.now() - lastAudioAt > idleStop * 1000 && bufLen === 0) {
+    playing = false; setOrb("listening");
+  }
+}, 1000);
+</script>
+</body>
+</html>

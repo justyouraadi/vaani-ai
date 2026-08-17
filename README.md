@@ -148,6 +148,17 @@ rule if you open ports publicly).
 A `telephony/*` adapter (Smartflo/FreeSWITCH) on the operator side converts SIP
 media into this wire format.
 
+### Live browser demo UI
+
+The edge server also serves a real-time demo page (no WAV files, no CLI):
+`http://<edge-host>:8765/demo/` (or `http://localhost:8765/`). Built with
+`AudioWorklet` (`vaani/demo/pcm16-processor.js`): mic audio is downsampled to
+PCM16 16 kHz on-device and streamed over the same `/ws/call` socket; Vaani's
+replies play back through a gapless buffer queue. Client-side VAD activity
+detection stops playback the moment you speak into the reply — the same
+barge-in you feel on a phone call, with the live transcript and pipeline events
+in the console panel.
+
 ## Latency playbook — where each trick lives
 
 | Trick | Implementation |

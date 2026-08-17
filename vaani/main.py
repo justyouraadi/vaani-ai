@@ -1,11 +1,16 @@
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .deps import PipelineDeps, build_deps
 from .orchestrator import CallSession
 from .settings import Settings, load_settings
+
+_DEMO_DIR = Path(__file__).resolve().parent / "demo"
 
 
 def create_app(settings: Optional[Settings] = None, deps: Optional[PipelineDeps] = None) -> FastAPI:
@@ -13,6 +18,12 @@ def create_app(settings: Optional[Settings] = None, deps: Optional[PipelineDeps]
     app = FastAPI(title="TBB-VaaniAI", version="0.1.0")
     app.state.settings = settings
     app.state.deps = deps
+
+    app.mount("/demo", StaticFiles(directory=_DEMO_DIR, html=True), name="demo")
+
+    @app.get("/")
+    async def root():
+        return RedirectResponse("/demo/")
 
     @app.get("/health")
     async def health():
