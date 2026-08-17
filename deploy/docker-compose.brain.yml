@@ -1,0 +1,22 @@
+services:
+  brain:
+    image: vllm/vllm-openai:v0.7.3
+    command: >
+      --model Qwen/Qwen2.5-14B-Instruct
+      --served-model-name Qwen/Qwen2.5-14B-Instruct
+      --enable-prefix-caching
+      --gpu-memory-utilization 0.92
+      --max-num-seqs 32
+      --max-model-len 8192
+      --port 8000
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ipc: host
+    restart: unless-stopped

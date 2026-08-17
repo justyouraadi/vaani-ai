@@ -1,0 +1,23 @@
+services:
+  edge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    environment:
+      VAANI_LLM_BASE_URL: ${VAANI_LLM_BASE_URL:-http://brain:8000/v1}
+      VAANI_LLM_MODEL: ${VAANI_LLM_MODEL:-Qwen/Qwen2.5-14B-Instruct}
+      VAANI_STT_MODEL: ${VAANI_STT_MODEL:-large-v3-turbo}
+      VAANI_TTS_ENGINE: ${VAANI_TTS_ENGINE:-xtts}
+      VAANI_SPEAKER_WAV: /app/models/vaani.wav
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

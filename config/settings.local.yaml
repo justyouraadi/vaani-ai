@@ -1,0 +1,13 @@
+stt:
+  model: "small"
+  device: "cpu"
+  compute_type: "int8"
+
+llm:
+  base_url: "http://localhost:11434/v1"
+  model: "qwen2.5:7b"
+
+tts:
+  engine: "melo"
+  device: "cpu"
+  language: "hi"

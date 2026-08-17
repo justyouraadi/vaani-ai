@@ -1,0 +1,47 @@
+call:
+  timeout_s: 900
+  max_turns: 12
+
+persona:
+  name: "Vaani"
+  language: "Hindi/Hinglish"
+  role: "You are Vaani, a warm, patient, and helpful voice assistant for a Hindi-speaking caller. Be polite, use spoken-conversation Hindi/Hinglish, keep sentences short, never use markdown, never spell out numbers, and never mention that you are an AI."
+  filler_words: ["Hmm", "Ji", "Achha", "Dekhiye"]
+
+vad:
+  sample_rate: 16000
+  frame_ms: 32
+  threshold: 0.5
+  hint_frames: 4
+  start_frames: 8
+  end_silence_frames: 22
+
+stt:
+  model: "large-v3-turbo"
+  device: "cuda"
+  compute_type: "float16"
+  language: "hi"
+  download_root: "models/whisper"
+  partial_interval_ms: 700
+
+llm:
+  base_url: "http://localhost:8000/v1"
+  model: "Qwen/Qwen2.5-14B-Instruct"
+  temperature: 0.6
+  top_p: 0.9
+  max_tokens: 256
+  fillers: true
+  extra_stop: []
+
+tts:
+  engine: "xtts"
+  model_path: "models/xtts-v2"
+  speaker_wav: "models/vaani.wav"
+  language: "hi"
+  stream_chunk_size: 16
+  max_chunk_chars: 240
+  device: "cuda"
+
+audio:
+  pcm_rate: 16000
+  tts_rate: 24000
